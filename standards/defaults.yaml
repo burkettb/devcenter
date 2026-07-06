@@ -1,0 +1,163 @@
+version: 2
+metadata:
+  name: DevCenter Default Standards
+  description: Built-in conventions shipped with the devcenter app. Every environment
+    inherits these; the DevCenter home repo's standards/global.yaml overlays them, and
+    project .devcenter/standards.yaml files override both. Objects deep-merge; arrays
+    and scalars in later layers replace these values.
+
+# ---------------------------------------------------------------------------
+# Keys below (branch_naming, required_files, task_statuses, preferred_license)
+# are parsed by DevCenter tooling. Everything else is agent/human-facing policy.
+# ---------------------------------------------------------------------------
+branch_naming:
+  feature: feature/{slug}
+  bugfix: bugfix/{slug}
+  chore: chore/{slug}
+  experiment: experiment/{slug}
+required_files:
+  - README.md
+task_statuses:
+  - backlog
+  - next
+  - in_progress
+  - blocked
+  - done
+preferred_license: none
+
+licensing:
+  default: Closed. New repos get no LICENSE file — default copyright, all rights reserved.
+  rules:
+    - Never add a license file unprompted; opening a project up is a deliberate
+      per-project decision the owner makes explicitly.
+    - When a project does open up, pick the license then.
+
+commits:
+  format: "Conventional Commits without scope: type: summary"
+  types: [feat, fix, docs, chore, refactor, test, ci, perf, revert]
+  rules:
+    - Summary is imperative, lowercase, no trailing period, under 72 chars.
+    - "No scopes — plain \"feat: add offsite backups\", never \"feat(k8s): ...\"."
+    - One logical change per commit; the repo must be in a working state after every commit.
+    - Do not mix refactoring with behavior changes in the same commit.
+    - Summary-only by default; add a body only when truly necessary. Durable rationale
+      belongs in docs or .devcenter/decisions.md, not commit bodies.
+    - Documentation that describes a change lands in the same working session; a separate
+      docs commit is fine.
+  forbidden:
+    - Vague summaries ("wip", "fixes", "updates").
+    - Committing generated artifacts, secrets, or local-only config.
+    - >-
+      Any AI attribution or AI tooling mention in commit messages — no
+      "Co-Authored-By: Claude ...", no "Generated with ...", no agent names in
+      subjects or bodies. Commit messages describe the change, not the tooling.
+
+pushing:
+  rules:
+    - Push after each completed unit of work; never end a session with finished work unpushed.
+    - Never rewrite history on main. On your own unmerged branches, force-push only with --force-with-lease.
+    - Before pushing main, run the repo's fastest relevant check (lint/validate/build) if one exists.
+    - If a secret ever lands in a commit, rotate the secret first, then clean history before pushing.
+
+branching:
+  when_to_commit_to_main:
+    - Solo repo AND the change is small, low-risk, and lands in a single commit
+      (docs, typo fixes, config tweaks, routine dependency bumps).
+  when_to_branch:
+    - Work spans multiple commits or sessions.
+    - Change is risky, experimental, or might be abandoned.
+    - Change should be validated or reviewed before it affects main (see pull_requests).
+    - Multiple agents or humans may touch the repo concurrently.
+  when_to_worktree:
+    - Use a git worktree (not branch switching) when work must proceed in parallel with
+      other work in the same repo — e.g. an agent runs a long task while you work, or a
+      quick fix is needed mid-feature.
+    - After creating a worktree, run `devcenter attach` inside it — sidecar links are
+      restored automatically and point at the same shared project memory.
+    - Claim a task in .devcenter/tasks.yaml (status in_progress, branch field) so
+      parallel threads do not collide on the same work.
+    - Remove worktrees when their branch merges; do not accumulate stale worktrees.
+
+pull_requests:
+  solo_repos:
+    - PRs are optional. Open one when the change has a large blast radius, needs CI to
+      validate before merge, or is worth a durable review record; otherwise merge locally.
+  shared_repos:
+    - Always open a PR; never push directly to main.
+  content:
+    - Description states what changed, why, and how it was verified.
+    - Delete the branch after merge.
+
+gitignore:
+  required_entries:
+    os_junk: [.DS_Store, Thumbs.db]
+    editors: [.vscode/, .idea/, "*.swp", "*.swo"]
+    secrets: [".env", ".env.*", "*.pem", "*.key", "credentials*", "secrets/"]
+    stack_artifacts: Ignore the stack's dependency/build/state dirs (node_modules/, dist/,
+      __pycache__/, .terraform/, "*.tfstate*", "*.retry", vault files, etc.).
+  rules:
+    - Secrets never enter git. Use env vars, vault files, or SOPS; if leaked, rotate immediately.
+    - Tracked .gitignore is product-facing only. DevCenter sidecar files (AGENTS.md,
+      CLAUDE.md, .devcenter/) are hidden via .git/info/exclude, never via tracked .gitignore.
+    - Personal/machine-local ignores (editor, ~/.gitignore_global entries) do not belong in
+      the repo's tracked .gitignore.
+
+ci_cd:
+  provider: GitHub Actions
+  philosophy: One pattern for every stack and host — containerized or static site, Python
+    or JavaScript, cloud or self-hosted. The phases are universal; the steps inside them
+    are stack-specific. Build once — validate and promote the same immutable artifact
+    (tagged with the git SHA); upper environments never rebuild.
+  phases:
+    1_prepare:
+      purpose: Dependencies and security.
+      steps: [restore caches, install dependencies, dependency vulnerability scan, secret scan]
+    2_build_test:
+      purpose: Build artifacts and test source.
+      steps: [compile/build/transpile, lint, typecheck, unit tests, component tests]
+    3_package:
+      purpose: Create the delivery artifact.
+      steps: [build container image or versioned bundle, tag with git SHA, push to the
+          registry for the deploy target (e.g. GHCR or ECR)]
+    4_validate_package:
+      purpose: Test the artifact itself, not the source.
+      steps: [run the image or serve the bundle, container scan, health checks, smoke
+          tests, verify routes and behavior]
+    5_deploy_promote:
+      purpose: Ship and promote.
+      steps: [auto-deploy to dev from main, promote the same artifact to upper
+          environments with required approval (GitHub environments + reviewers), notify,
+          auto-rollback on failed health checks]
+  triggers:
+    pull_requests: Phases 1-2 only — fast feedback. New pushes cancel superseded runs.
+    main: Full pipeline, phases 1-5.
+  gates:
+    - Never merge on red; CI must pass before a PR merges.
+    - Security scans block on critical/high findings; medium/low report as warnings.
+    - Secret detections always block, at any severity.
+  conventions:
+    - Workflows live in .github/workflows/, one file per concern (ci.yaml, deploy.yaml).
+    - Notifications are GitHub-native (statuses, checks, releases); add per-repo webhooks
+      only when a real need appears.
+    - CI secrets live in GitHub Actions secrets, never in committed config.
+
+context_logging:
+  where: All durable project memory lives in the .devcenter/ sidecar, never only in chat.
+  files:
+    context.md: Goals, current state, known problems, next steps. Update when project state changes.
+    decisions.md: Durable technical/product decisions with date and rationale.
+    tasks.yaml: Every discovered follow-up becomes a task before the session ends.
+    agent-log.md: Dated handoff summary appended at the end of every working session.
+  rules:
+    - Public docs (README, architecture) describe the product and never mention DevCenter.
+    - Sidecar memory describes how to work on the project (paths, intent, workflow, handoffs).
+    - Run `devcenter sync` at the end of a session so memory reaches GitHub.
+
+conventions:
+  commits: "Conventional commits without scope: type: summary, rarely a body. See `commits` for full rules."
+  documentation: Public docs stay product-facing and never mention DevCenter;
+    workflow notes live in sidecar memory.
+  tasks: Every discovered follow-up becomes a task in .devcenter/tasks.yaml before
+    the work ends.
+  agent_log: Agents append a dated summary to .devcenter/agent-log.md before
+    handing off.
