@@ -1,12 +1,11 @@
-import React from "react";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import "@fontsource-variable/jetbrains-mono";
-import "@fontsource-variable/bricolage-grotesque";
-import "./styles.css";
+import "./slate/slate.css";
+import "./app.css";
 
 createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
+  <StrictMode>
     <App />
-  </React.StrictMode>
+  </StrictMode>
 );

@@ -1,0 +1,9 @@
+/* ---------------------------------------------------------------------------
+   Fonts — Geist Sans (display + body) and Geist Mono (code/data).
+   Geist is the intended neutral grotesk (Vercel/Geist family named in the
+   design profile). Vendored locally via @fontsource-variable so DevCenter
+   works fully offline — the readme.md "Fonts" note sanctions swapping the
+   CDN @import for local font files.
+--------------------------------------------------------------------------- */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';

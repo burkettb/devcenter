@@ -1,0 +1,17 @@
+/* ===========================================================================
+   Slate Design System — DevCenter entry manifest.
+   App subset of the upstream styles.css: token layer + component classes +
+   dashboard classes. Marketing/brochure/portfolio/tool layers are omitted
+   (DevCenter is an app surface, 14px base). theme-dark.css stays opt-in and
+   unimported, matching upstream.
+   =========================================================================== */
+@import url('./tokens/fonts.css');
+@import url('./tokens/colors.css');
+@import url('./tokens/typography.css');
+@import url('./tokens/spacing.css');
+@import url('./tokens/radius.css');
+@import url('./tokens/elevation.css');
+@import url('./tokens/motion.css');
+@import url('./tokens/layout.css');
+@import url('./components.css');
+@import url('./dashboard/dashboard.css');
