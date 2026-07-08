@@ -171,6 +171,8 @@ export interface ProjectSummary {
   relativePath: string;
   status: string;
   lastModified?: string;
+  /** Newest dirty-file mtime or local branch tip — "when did I last touch this". */
+  lastChange?: string;
   metadata: ProjectMetadata;
   metadataExists: boolean;
   tasks: ProjectTask[];
@@ -191,6 +193,20 @@ export interface ProjectsResponse {
   warnings: string[];
   standards: DevCenterStandards;
   projects: ProjectSummary[];
+}
+
+export interface TaskChanges {
+  title?: string;
+  status?: TaskStatus;
+  priority?: string;
+  branch?: string;
+  notes?: string;
+}
+
+export interface TaskUpdateResponse {
+  projectPath: string;
+  taskId: string;
+  tasks: ProjectTask[];
 }
 
 export interface DocumentResponse {

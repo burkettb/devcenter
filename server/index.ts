@@ -4,9 +4,9 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { loadRuntimeConfig, loadStandards } from "./config";
 import { discoverProjects } from "./discovery";
-import { collectProject, readProjectDocument } from "./devcenter";
+import { collectProject, readProjectDocument, updateProjectTask } from "./devcenter";
 import { collectBranchCommits } from "./git";
-import type { BranchCommitsResponse, DocumentResponse, ProjectsResponse } from "../src/types";
+import type { BranchCommitsResponse, DocumentResponse, ProjectsResponse, TaskUpdateResponse } from "../src/types";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -115,6 +115,44 @@ async function createApp() {
       const content = await readProjectDocument(projectPath, relativePath);
       const payload: DocumentResponse = { projectPath, relativePath, content };
       response.json(payload);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/task", async (request, response, next) => {
+    try {
+      const body = (request.body ?? {}) as { path?: unknown; taskId?: unknown; changes?: unknown };
+      const projectPath = typeof body.path === "string" ? body.path : "";
+      const taskId = typeof body.taskId === "string" ? body.taskId : "";
+      const changes = body.changes && typeof body.changes === "object" ? (body.changes as Record<string, unknown>) : {};
+
+      if (!projectPath || !taskId) {
+        response.status(400).json({ error: "path and taskId are required." });
+        return;
+      }
+
+      if (!isPathInside(config.scanRoot, projectPath)) {
+        response.status(403).json({ error: "Project path is outside the configured scan root." });
+        return;
+      }
+
+      const stringChanges: Record<string, string> = {};
+      for (const key of ["title", "status", "priority", "branch", "notes"] as const) {
+        if (typeof changes[key] === "string") {
+          stringChanges[key] = changes[key] as string;
+        }
+      }
+
+      try {
+        const tasks = await updateProjectTask(projectPath, taskId, stringChanges);
+        const payload: TaskUpdateResponse = { projectPath, taskId, tasks };
+        response.json(payload);
+      } catch (error) {
+        // Task updates fail on user-correctable input (missing file, unknown
+        // id, invalid status), so report them as request errors.
+        response.status(400).json({ error: error instanceof Error ? error.message : "Task could not be updated." });
+      }
     } catch (error) {
       next(error);
     }

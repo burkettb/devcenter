@@ -221,6 +221,82 @@ async function readTasks(repoPath: string): Promise<{ exists: boolean; tasks: Pr
   };
 }
 
+export interface ProjectTaskChanges {
+  title?: string;
+  status?: string;
+  priority?: string;
+  branch?: string;
+  notes?: string;
+}
+
+/**
+ * Update one task in `<repoPath>/.devcenter/tasks.yaml` in place. Works on the
+ * raw parsed YAML so fields this app does not model (created, source, …) are
+ * preserved. Returns the normalized task list after the write.
+ */
+export async function updateProjectTask(
+  repoPath: string,
+  taskId: string,
+  changes: ProjectTaskChanges
+): Promise<ProjectTask[]> {
+  const tasksPath = path.join(repoPath, ".devcenter", "tasks.yaml");
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(tasksPath, "utf8");
+  } catch {
+    throw new Error("This project has no .devcenter/tasks.yaml. Attach it with `devcenter attach` first.");
+  }
+
+  const parsed: unknown = YAML.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error(".devcenter/tasks.yaml is not a task list.");
+  }
+
+  const entry = parsed.find((candidate, index) => {
+    if (!isObject(candidate)) {
+      return false;
+    }
+    const id = typeof candidate.id === "string" && candidate.id.length > 0 ? candidate.id : `task-${index + 1}`;
+    return id.toLowerCase() === taskId.toLowerCase();
+  }) as Record<string, unknown> | undefined;
+
+  if (!entry) {
+    throw new Error(`No task with id "${taskId}" in this project.`);
+  }
+
+  if (changes.title !== undefined) {
+    const title = changes.title.trim();
+    if (!title) {
+      throw new Error("Task title cannot be empty.");
+    }
+    entry.title = title;
+  }
+
+  if (changes.status !== undefined) {
+    if (!taskStatuses.includes(changes.status as TaskStatus)) {
+      throw new Error(`Unknown status "${changes.status}". Valid statuses: ${taskStatuses.join(", ")}.`);
+    }
+    entry.status = changes.status;
+  }
+
+  if (changes.priority !== undefined) {
+    entry.priority = changes.priority;
+  }
+
+  if (changes.branch !== undefined) {
+    entry.branch = changes.branch;
+  }
+
+  if (changes.notes !== undefined) {
+    entry.notes = changes.notes;
+  }
+
+  await fs.writeFile(tasksPath, YAML.stringify(parsed, { lineWidth: 100, minContentWidth: 0 }), "utf8");
+
+  return parsed.map(normalizeTask).filter((task): task is ProjectTask => Boolean(task));
+}
+
 function countTasks(tasks: ProjectTask[]): TaskCounts {
   return tasks.reduce<TaskCounts>(
     (counts, task) => {
@@ -414,6 +490,42 @@ function emptyGitState(): GitState {
   };
 }
 
+const DIRTY_FILE_STAT_LIMIT = 100;
+
+/**
+ * The most recent moment work happened in this checkout: the newest dirty-file
+ * mtime (uncommitted work in progress) or the newest commit on any local
+ * branch. Deterministic filesystem/git reads only.
+ */
+async function latestChange(repoPath: string, git: GitState): Promise<string | undefined> {
+  const timestamps: number[] = [];
+
+  const commitDates = [git.lastCommit.date, ...git.localBranches.map((branch) => branch.lastCommitDate)];
+  for (const date of commitDates) {
+    const parsed = date ? Date.parse(date) : Number.NaN;
+    if (Number.isFinite(parsed)) {
+      timestamps.push(parsed);
+    }
+  }
+
+  const dirtyStats = await Promise.all(
+    (git.dirtyFiles ?? [])
+      .slice(0, DIRTY_FILE_STAT_LIMIT)
+      .map((file) => statOptional(path.join(repoPath, file.path)))
+  );
+  for (const stats of dirtyStats) {
+    if (stats) {
+      timestamps.push(stats.mtime.getTime());
+    }
+  }
+
+  if (timestamps.length === 0) {
+    return undefined;
+  }
+
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
 export async function collectProject(
   repoPath: string,
   scanRoot: string,
@@ -433,6 +545,8 @@ export async function collectProject(
       statOptional(path.join(repoPath, ".devcenter", "agent-log.md"))
     ]);
 
+  const lastChange = git.isRepo ? await latestChange(repoPath, git) : repoStats?.mtime.toISOString();
+
   const documents = [...baseDocuments, ...archDocs];
   const compliance = buildComplianceIssues({
     repoPath,
@@ -451,6 +565,7 @@ export async function collectProject(
     relativePath: path.relative(scanRoot, repoPath) || ".",
     status: metadataResult.metadata.status ?? (!git.isRepo ? "not_repo" : git.dirty ? "active" : "quiet"),
     lastModified: repoStats?.mtime.toISOString(),
+    lastChange,
     metadata: metadataResult.metadata,
     metadataExists: metadataResult.exists,
     tasks: taskResult.tasks,
