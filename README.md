@@ -103,9 +103,17 @@ Attach, doctor, and sync materialize the merged first two layers into each sidec
 
 ## Dashboard
 
+Run the board as a login service so it is always at the same URL:
+
 ```bash
-npm run dev     # http://localhost:4173
+devcenter service install   # build, then run at login via launchd (macOS)
+devcenter open              # open http://localhost:4173
+devcenter service status    # installed? answering? where is the log?
+devcenter service restart   # rebuild and restart after pulling updates
+devcenter service uninstall
 ```
+
+`devcenter ensure` and `devcenter status` print the board URL, or a hint when it is not running. For development, `npm run dev` serves the same app with hot reload.
 
 Scans `~/dev` by default and renders repository health (branches, dirty state, ahead/behind, stashes, worktrees), aggregated tasks, docs, standards compliance, and per-repo pages with branch maps and commit timelines.
 
