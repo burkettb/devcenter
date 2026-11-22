@@ -4,9 +4,9 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { loadRuntimeConfig, loadStandards } from "./config";
 import { discoverProjects } from "./discovery";
-import { collectProject, readProjectDocument, updateProjectTask } from "./devcenter";
+import { collectProject, createProjectTask, deleteProjectTask, readProjectDocument, updateProjectTask } from "./devcenter";
 import { collectBranchCommits } from "./git";
-import type { BranchCommitsResponse, DocumentResponse, ProjectsResponse, TaskUpdateResponse } from "../src/types";
+import type { BranchCommitsResponse, DocumentResponse, ProjectsResponse, TaskCreateResponse, TaskUpdateResponse } from "../src/types";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -152,6 +152,62 @@ async function createApp() {
         // Task updates fail on user-correctable input (missing file, unknown
         // id, invalid status), so report them as request errors.
         response.status(400).json({ error: error instanceof Error ? error.message : "Task could not be updated." });
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/tasks", async (request, response, next) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const projectPath = typeof body.path === "string" ? body.path : "";
+      if (!projectPath) {
+        response.status(400).json({ error: "path is required." });
+        return;
+      }
+      if (!isPathInside(config.scanRoot, projectPath)) {
+        response.status(403).json({ error: "Project path is outside the configured scan root." });
+        return;
+      }
+
+      const text = (key: string) => (typeof body[key] === "string" ? (body[key] as string) : undefined);
+      try {
+        const created = await createProjectTask(projectPath, {
+          title: text("title") ?? "",
+          status: text("status"),
+          priority: text("priority"),
+          notes: text("notes")
+        });
+        const payload: TaskCreateResponse = { projectPath, taskId: created.id, tasks: created.tasks };
+        response.json(payload);
+      } catch (error) {
+        response.status(400).json({ error: error instanceof Error ? error.message : "Task could not be created." });
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/task", async (request, response, next) => {
+    try {
+      const projectPath = String(request.query.path ?? "");
+      const taskId = String(request.query.taskId ?? "");
+      if (!projectPath || !taskId) {
+        response.status(400).json({ error: "path and taskId query parameters are required." });
+        return;
+      }
+      if (!isPathInside(config.scanRoot, projectPath)) {
+        response.status(403).json({ error: "Project path is outside the configured scan root." });
+        return;
+      }
+
+      try {
+        const tasks = await deleteProjectTask(projectPath, taskId);
+        const payload: TaskUpdateResponse = { projectPath, taskId, tasks };
+        response.json(payload);
+      } catch (error) {
+        response.status(400).json({ error: error instanceof Error ? error.message : "Task could not be deleted." });
       }
     } catch (error) {
       next(error);

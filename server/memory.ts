@@ -8,8 +8,9 @@ import {
   type SidecarResult
 } from "./sidecar";
 import { refreshAllMaterializedStandards } from "./standards";
+import { nextTaskId } from "./taskIds";
 
-export const taskStatuses = ["backlog", "next", "in_progress", "blocked", "done"] as const;
+export const taskStatuses = ["inbox", "backlog", "next", "in_progress", "blocked", "done"] as const;
 export type TaskStatus = (typeof taskStatuses)[number];
 
 export interface TaskRecord {
@@ -75,45 +76,40 @@ function normalizeTask(value: unknown): TaskRecord | undefined {
   };
 }
 
-async function readTaskFile(tasksPath: string): Promise<TaskRecord[]> {
+async function readRawTasks(tasksPath: string): Promise<Array<Record<string, unknown>>> {
   const raw = await readTextIfExists(tasksPath);
   if (raw === undefined) {
     throw new Error(`No tasks file at ${tasksPath}. Run \`devcenter attach\` first.`);
   }
 
-  const parsed = YAML.parse(raw);
-  if (!Array.isArray(parsed)) {
+  const parsed: unknown = YAML.parse(raw);
+  if (parsed === null || parsed === undefined) {
     return [];
   }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${tasksPath} is not a task list.`);
+  }
 
-  return parsed.map(normalizeTask).filter((task): task is TaskRecord => Boolean(task));
+  return parsed.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry));
 }
 
-async function writeTaskFile(tasksPath: string, tasks: TaskRecord[]): Promise<void> {
+async function readTaskFile(tasksPath: string): Promise<TaskRecord[]> {
+  return (await readRawTasks(tasksPath)).map(normalizeTask).filter((task): task is TaskRecord => Boolean(task));
+}
+
+// Writes the raw records so fields DevCenter does not model (created, source, ...) survive.
+async function writeRawTasks(tasksPath: string, tasks: Array<Record<string, unknown>>): Promise<void> {
   await fs.writeFile(tasksPath, YAML.stringify(tasks, { lineWidth: 100, minContentWidth: 0 }), "utf8");
 }
 
-function taskIdPrefix(projectName: string): string {
-  const initials = projectName
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase();
-  return initials.slice(0, 4) || "TASK";
+function findRawTask(tasks: Array<Record<string, unknown>>, taskId: string): Record<string, unknown> | undefined {
+  return tasks.find((task) => typeof task.id === "string" && task.id.toLowerCase() === taskId.toLowerCase());
 }
 
-function nextTaskId(projectName: string, tasks: TaskRecord[]): string {
-  const prefix = taskIdPrefix(projectName);
-  let highest = 0;
-  for (const task of tasks) {
-    const match = /^(?:[A-Za-z]+)-(\d+)$/.exec(task.id);
-    if (match) {
-      highest = Math.max(highest, Number(match[1]));
-    }
+function assertStatus(status: string): void {
+  if (!taskStatuses.includes(status as TaskStatus)) {
+    throw new Error(`Unknown status "${status}". Valid statuses: ${taskStatuses.join(", ")}.`);
   }
-
-  return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
 }
 
 function formatTask(task: TaskRecord): string {
@@ -156,22 +152,22 @@ export async function addTask(
 
   const context = await createSidecarContext(projectPathInput, devcenterRootInput);
   const tasksPath = path.join(context.devcenterTarget, "tasks.yaml");
-  const tasks = await readTaskFile(tasksPath);
-  const status = options.status ?? "backlog";
-  if (!taskStatuses.includes(status as TaskStatus)) {
-    throw new Error(`Unknown status "${status}". Valid statuses: ${taskStatuses.join(", ")}.`);
-  }
+  const rawTasks = await readRawTasks(tasksPath);
+  // New tasks land in the inbox for triage unless the caller says otherwise.
+  const status = options.status ?? "inbox";
+  assertStatus(status);
 
+  const existingIds = rawTasks.map((entry) => (typeof entry.id === "string" ? entry.id : ""));
   const task: TaskRecord = {
-    id: nextTaskId(context.projectName, tasks),
+    id: nextTaskId(context.projectName, existingIds),
     title: title.trim(),
     status,
     priority: options.priority ?? "medium",
     branch: options.branch ?? "",
     notes: options.notes ?? ""
   };
-  tasks.push(task);
-  await writeTaskFile(tasksPath, tasks);
+  rawTasks.push({ ...task });
+  await writeRawTasks(tasksPath, rawTasks);
 
   return result(context.projectName, context.projectPath, context.storagePath, [`added ${formatTask(task)}`]);
 }
@@ -182,25 +178,102 @@ export async function setTaskStatus(
   status: string,
   devcenterRootInput?: string
 ): Promise<SidecarResult> {
-  if (!taskStatuses.includes(status as TaskStatus)) {
-    throw new Error(`Unknown status "${status}". Valid statuses: ${taskStatuses.join(", ")}.`);
-  }
+  assertStatus(status);
 
   const context = await createSidecarContext(projectPathInput, devcenterRootInput);
   const tasksPath = path.join(context.devcenterTarget, "tasks.yaml");
-  const tasks = await readTaskFile(tasksPath);
-  const task = tasks.find((candidate) => candidate.id.toLowerCase() === taskId.toLowerCase());
-  if (!task) {
+  const rawTasks = await readRawTasks(tasksPath);
+  const entry = findRawTask(rawTasks, taskId);
+  if (!entry) {
     throw new Error(`No task with id "${taskId}" in ${tasksPath}.`);
   }
 
-  task.status = status;
-  if (status === "done" && !task.notes.includes("Done ")) {
-    task.notes = task.notes ? `${task.notes} Done ${today()}.` : `Done ${today()}.`;
+  entry.status = status;
+  const notes = typeof entry.notes === "string" ? entry.notes : "";
+  if (status === "done" && !notes.includes("Done ")) {
+    entry.notes = notes ? `${notes} Done ${today()}.` : `Done ${today()}.`;
   }
-  await writeTaskFile(tasksPath, tasks);
+  await writeRawTasks(tasksPath, rawTasks);
 
-  return result(context.projectName, context.projectPath, context.storagePath, [`updated ${formatTask(task)}`]);
+  const task = normalizeTask(entry);
+  return result(context.projectName, context.projectPath, context.storagePath, [`updated ${task ? formatTask(task) : taskId}`]);
+}
+
+export async function deleteTask(projectPathInput: string, taskId: string, devcenterRootInput?: string): Promise<SidecarResult> {
+  const context = await createSidecarContext(projectPathInput, devcenterRootInput);
+  const tasksPath = path.join(context.devcenterTarget, "tasks.yaml");
+  const rawTasks = await readRawTasks(tasksPath);
+  const entry = findRawTask(rawTasks, taskId);
+  if (!entry) {
+    throw new Error(`No task with id "${taskId}" in ${tasksPath}.`);
+  }
+
+  await writeRawTasks(tasksPath, rawTasks.filter((candidate) => candidate !== entry));
+  return result(context.projectName, context.projectPath, context.storagePath, [`deleted ${entry.id} ${String(entry.title ?? "")}`.trim()]);
+}
+
+export interface SweepOptions {
+  all?: boolean;
+  dryRun?: boolean;
+}
+
+/**
+ * Move untriaged backlog into the inbox so it gets one accept/delete pass.
+ * Runs on the current project, or every project in the home with `all`.
+ */
+export async function sweepBacklogToInbox(
+  projectPathInput = ".",
+  options: SweepOptions = {},
+  devcenterRootInput?: string
+): Promise<SidecarResult> {
+  const devcenterRoot = path.resolve(devcenterRootInput ?? (await defaultDevCenterRoot()));
+  const targets: Array<{ name: string; tasksPath: string }> = [];
+
+  if (options.all) {
+    const projectsRoot = path.join(devcenterRoot, "projects");
+    const entries = await fs.readdir(projectsRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.name.startsWith(".")) {
+        targets.push({ name: entry.name, tasksPath: path.join(projectsRoot, entry.name, ".devcenter", "tasks.yaml") });
+      }
+    }
+  } else {
+    const context = await createSidecarContext(projectPathInput, devcenterRootInput);
+    targets.push({ name: context.projectName, tasksPath: path.join(context.devcenterTarget, "tasks.yaml") });
+  }
+
+  const messages: string[] = [];
+  const warnings: string[] = [];
+  let total = 0;
+  for (const target of targets) {
+    let rawTasks: Array<Record<string, unknown>>;
+    try {
+      rawTasks = await readRawTasks(target.tasksPath);
+    } catch (error) {
+      if (options.all) {
+        warnings.push(`${target.name}: skipped (${error instanceof Error ? error.message.split("\n")[0] : String(error)})`);
+        continue;
+      }
+      throw error;
+    }
+
+    const backlog = rawTasks.filter((task) => task.status === "backlog");
+    if (backlog.length === 0) {
+      continue;
+    }
+
+    total += backlog.length;
+    messages.push(`${target.name}: ${backlog.length} backlog → inbox`);
+    if (!options.dryRun) {
+      for (const task of backlog) {
+        task.status = "inbox";
+      }
+      await writeRawTasks(target.tasksPath, rawTasks);
+    }
+  }
+
+  messages.push(total === 0 ? "No backlog tasks to sweep." : `${options.dryRun ? "Would move" : "Moved"} ${total} task${total === 1 ? "" : "s"} to the inbox.`);
+  return result("", devcenterRoot, path.join(devcenterRoot, "projects"), messages, warnings);
 }
 
 export async function appendAgentLog(

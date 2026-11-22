@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
 import YAML from "yaml";
-import { updateProjectTask } from "./devcenter";
+import { createProjectTask, deleteProjectTask, updateProjectTask } from "./devcenter";
 
 const tempRoots: string[] = [];
 
@@ -87,5 +87,37 @@ describe("updateProjectTask", () => {
     tempRoots.push(root);
 
     await assert.rejects(() => updateProjectTask(root, "AB-001", { status: "done" }), /no \.devcenter\/tasks\.yaml/);
+  });
+});
+
+describe("createProjectTask", () => {
+  it("appends an inbox task with the project's existing id prefix", async () => {
+    const root = await makeProject([{ id: "GW-009", title: "Existing", status: "next", created: "2026-01-01" }]);
+    const created = await createProjectTask(root, { title: "  New one  ", notes: "why" });
+    assert.equal(created.id, "GW-010");
+
+    const raw = await readRawTasks(root);
+    assert.equal(raw.length, 2);
+    assert.equal(raw[0].created, "2026-01-01");
+    assert.deepEqual(raw[1], { id: "GW-010", title: "New one", status: "inbox", priority: "medium", branch: "", notes: "why" });
+  });
+
+  it("rejects empty titles and unknown statuses", async () => {
+    const root = await makeProject([]);
+    await assert.rejects(createProjectTask(root, { title: " " }), /cannot be empty/);
+    await assert.rejects(createProjectTask(root, { title: "x", status: "pending" }), /Unknown status/);
+  });
+});
+
+describe("deleteProjectTask", () => {
+  it("removes the task and keeps the rest untouched", async () => {
+    const root = await makeProject([
+      { id: "A-001", title: "Keep", status: "next", source: "audit" },
+      { id: "A-002", title: "Drop", status: "inbox" }
+    ]);
+    const tasks = await deleteProjectTask(root, "a-002");
+    assert.deepEqual(tasks.map((task) => task.id), ["A-001"]);
+    assert.equal((await readRawTasks(root))[0].source, "audit");
+    await assert.rejects(deleteProjectTask(root, "A-002"), /No task with id/);
   });
 });

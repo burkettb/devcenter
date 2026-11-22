@@ -15,6 +15,7 @@ export type BadgeTone = "neutral" | "info" | "success" | "warning" | "danger";
 export type TagHue = "blue" | "teal" | "violet" | "amber" | "rose";
 
 export const taskStatusLabels: Record<TaskStatus, string> = {
+  inbox: "Inbox",
   backlog: "Backlog",
   next: "Next",
   in_progress: "In Progress",
@@ -22,7 +23,7 @@ export const taskStatusLabels: Record<TaskStatus, string> = {
   done: "Done"
 };
 
-export const taskStatusOrder: TaskStatus[] = ["backlog", "next", "in_progress", "blocked", "done"];
+export const taskStatusOrder: TaskStatus[] = ["inbox", "backlog", "next", "in_progress", "blocked", "done"];
 
 export function countTaskStatuses(tasks: ProjectTask[]): TaskCounts {
   return tasks.reduce<TaskCounts>(
@@ -30,7 +31,7 @@ export function countTaskStatuses(tasks: ProjectTask[]): TaskCounts {
       counts[task.status] += 1;
       return counts;
     },
-    { backlog: 0, next: 0, in_progress: 0, blocked: 0, done: 0 }
+    { inbox: 0, backlog: 0, next: 0, in_progress: 0, blocked: 0, done: 0 }
   );
 }
 
@@ -120,7 +121,7 @@ export function formatRelative(value?: string): string {
 }
 
 export function openTaskCount(project: ProjectSummary): number {
-  return project.taskCounts.backlog + project.taskCounts.next + project.taskCounts.in_progress + project.taskCounts.blocked;
+  return project.taskCounts.inbox + project.taskCounts.backlog + project.taskCounts.next + project.taskCounts.in_progress + project.taskCounts.blocked;
 }
 
 export type DirtyFileGroups = Record<"staged" | "unstaged" | "untracked" | "deleted", GitDirtyFile[]>;

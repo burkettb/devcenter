@@ -15,9 +15,11 @@ import { expandTilde, homeConfigPath, resolveDevCenterHome, writeConfiguredHome 
 import {
   addTask,
   appendAgentLog,
+  deleteTask,
   listProjects,
   listTasks,
   setTaskStatus,
+  sweepBacklogToInbox,
   syncMemory,
   taskStatuses
 } from "./memory";
@@ -35,10 +37,13 @@ Project memory (run inside a project, or pass a path):
 
 Communication:
   task list                       Show open tasks for this project.
-  task add <title> [options]      Add a task (--priority, --status, --notes, --branch).
+  task add <title> [options]      Add a task to the inbox (--priority, --status, --notes, --branch).
   task start <id>                 Mark a task in_progress.
   task done <id>                  Mark a task done.
   task set <id> <status>          Set any status (${taskStatuses.join(", ")}).
+  task rm <id>                    Delete a task (the home repo's git history is the undo).
+  task sweep [--all] [--dry-run]  Move backlog tasks to the inbox for triage
+                                  (this project, or every project with --all).
   log <message>                   Append a dated note to this project's agent log.
 
 DevCenter repo:
@@ -126,6 +131,15 @@ async function runTaskCommand(args: string[]): Promise<SidecarResult> {
       }
       return setTaskStatus(".", id, status);
     }
+    case "rm": {
+      const [id] = rest;
+      if (!id) {
+        throw new Error("task rm requires a task id.");
+      }
+      return deleteTask(".", id);
+    }
+    case "sweep":
+      return sweepBacklogToInbox(".", { all: rest.includes("--all"), dryRun: rest.includes("--dry-run") });
     default:
       throw new Error(`Unknown task subcommand: ${subcommand}`);
   }

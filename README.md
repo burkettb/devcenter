@@ -67,9 +67,11 @@ Communicate (agents and humans, from inside any attached project):
 
 ```bash
 devcenter task list
-devcenter task add "Fix flaky auth test" --priority high
+devcenter task add "Fix flaky auth test" --priority high   # lands in the inbox
 devcenter task start MA-001
 devcenter task done MA-001
+devcenter task rm MA-002
+devcenter task sweep --all --dry-run   # preview moving backlog into the inbox
 devcenter log "Refactored auth middleware; tests green."
 ```
 
@@ -89,7 +91,7 @@ Each sidecar `AGENTS.md` instructs agents to:
 2. Claim a task (`in_progress`) when one covers their work.
 3. Before finishing: mark tasks done, add tasks for discovered follow-ups, append a dated `agent-log.md` summary, refresh `context.md`, and run `devcenter sync`.
 
-Task completions and new tasks flow back through `tasks.yaml` and `agent-log.md`, land in the home repo via `devcenter sync`, and show up in the dashboard and `devcenter list`.
+New tasks start in the `inbox` status. Triage them on the board (accept to backlog, move to next, or delete, one key each) so agent-proposed follow-ups never pile up unreviewed. Task completions and new tasks flow back through `tasks.yaml` and `agent-log.md`, land in the home repo via `devcenter sync`, and show up in the dashboard and `devcenter list`.
 
 ## Standards
 

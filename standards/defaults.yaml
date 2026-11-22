@@ -18,6 +18,7 @@ branch_naming:
 required_files:
   - README.md
 task_statuses:
+  - inbox
   - backlog
   - next
   - in_progress
