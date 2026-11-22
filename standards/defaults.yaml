@@ -12,7 +12,7 @@ metadata:
 # ---------------------------------------------------------------------------
 branch_naming:
   feature: feature/{slug}
-  bugfix: bugfix/{slug}
+  fix: fix/{slug}
   chore: chore/{slug}
   experiment: experiment/{slug}
 required_files:
