@@ -43,7 +43,8 @@ Project memory (run inside a project, or pass a path):
   doctor [path]                   Repair missing sidecar files, symlinks, and exclude entries.
   detach [path] [--clean-exclude] Remove local sidecar symlinks.
   ensure [path]                   Hook-friendly attach check: silent outside git repos,
-                                  restores links for known projects, hints when unmanaged.
+                                  restores links for known projects, hints when unmanaged,
+                                  and prints the project standards and context.
 
 Communication:
   task list                       Show open tasks for this project.
@@ -250,8 +251,10 @@ async function main(argv: string[]): Promise<number> {
     case "ensure": {
       const result = await ensureSidecar(takePath(args));
       // Only attached projects get the board line; ensure stays quiet elsewhere.
-      if (result.messages.some((message) => message.includes("attached"))) {
-        result.messages.push(await boardStatusLine());
+      // It sits right under the status line, ahead of the printed project files.
+      const statusIndex = result.messages.findIndex((message) => /^DevCenter: ".*" attached/.test(message));
+      if (statusIndex !== -1) {
+        result.messages.splice(statusIndex + 1, 0, await boardStatusLine());
       }
       printResult(result);
       return result.exitCode;
