@@ -126,9 +126,12 @@ Override the scan root with `DEV_CENTER_ROOT=/path npm run dev`, or copy `devcen
   "scanRoot": "~/dev",
   "maxDepth": 3,
   "port": 4173,
-  "excludeSubdirectories": []
+  "excludeSubdirectories": [],
+  "extraProjects": []
 }
 ```
+
+The scan skips dot-directories and anything outside `scanRoot`. List repos like that in `extraProjects` (e.g. `"~/.dotfiles"`) or `DEV_CENTER_EXTRA_PROJECTS=~/a,~/b` to show them anyway.
 
 ## Development
 

@@ -105,3 +105,26 @@ export async function discoverProjects(root: string, maxDepth: number, excludeSu
   await walk(root, maxDepth);
   return [...projects.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
+
+// Explicitly configured project paths bypass the walk, so they can live outside
+// the scan root or carry names the walk skips (dot-directories). Missing paths
+// and paths the walk already found are dropped.
+export async function withExtraProjects(discovered: DiscoveredProject[], extraPaths: string[]): Promise<DiscoveredProject[]> {
+  const projects = new Map(discovered.map((project) => [project.path, project]));
+
+  for (const extraPath of extraPaths) {
+    const resolved = path.resolve(extraPath);
+    if (projects.has(resolved)) {
+      continue;
+    }
+
+    const stats = await fs.stat(resolved).catch(() => undefined);
+    if (!stats?.isDirectory()) {
+      continue;
+    }
+
+    projects.set(resolved, { path: resolved, isRepo: await hasGitMarker(resolved) });
+  }
+
+  return [...projects.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
