@@ -11,6 +11,7 @@ import {
   statusSidecar,
   type SidecarResult
 } from "./sidecar";
+import { autoMemoryWarnings, taskFileWarnings } from "./health";
 import { expandTilde, homeConfigPath, resolveDevCenterHome, writeConfiguredHome } from "./home";
 import {
   addTask,
@@ -200,6 +201,10 @@ async function main(argv: string[]): Promise<number> {
     }
     case "doctor": {
       const result = await doctorSidecar(takePath(args));
+      result.warnings.push(
+        ...(await taskFileWarnings(path.join(result.storagePath, ".devcenter", "tasks.yaml"))),
+        ...(await autoMemoryWarnings(result.projectPath))
+      );
       printResult(result);
       return result.exitCode;
     }
