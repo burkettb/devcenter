@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import YAML from "yaml";
 import { nextTaskId } from "./taskIds";
@@ -528,6 +529,22 @@ function buildAttention(project: {
   return [...attention];
 }
 
+// Path shown on the board: relative to the scan root, or "~/..." for extra
+// projects that live outside it, so they don't render as "../../x".
+export function displayPath(scanRoot: string, repoPath: string): string {
+  const relative = path.relative(scanRoot, repoPath);
+  if (!relative) {
+    return ".";
+  }
+
+  if (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+    return relative;
+  }
+
+  const home = os.homedir();
+  return repoPath.startsWith(`${home}${path.sep}`) ? `~/${path.relative(home, repoPath)}` : repoPath;
+}
+
 export function projectId(projectPath: string): string {
   return Buffer.from(projectPath).toString("base64url");
 }
@@ -640,7 +657,7 @@ export async function collectProject(
     id: projectId(repoPath),
     name: metadataResult.metadata.name ?? path.basename(repoPath),
     path: repoPath,
-    relativePath: path.relative(scanRoot, repoPath) || ".",
+    relativePath: displayPath(scanRoot, repoPath),
     status: metadataResult.metadata.status ?? (!git.isRepo ? "not_repo" : git.dirty ? "active" : "quiet"),
     lastModified: repoStats?.mtime.toISOString(),
     lastChange,

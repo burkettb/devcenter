@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverProjects } from "./discovery";
+import { discoverProjects, withExtraProjects } from "./discovery";
 
 async function mkdirp(directory: string): Promise<void> {
   await fs.mkdir(directory, { recursive: true });
@@ -38,4 +38,26 @@ test("discoverProjects skips excluded root subdirectories", async () => {
   const relative = projects.map((project) => path.relative(root, project.path));
 
   assert.deepEqual(relative, ["active"]);
+});
+
+test("withExtraProjects adds dot-directories outside the scan root and drops missing or duplicate paths", async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-discovery-"));
+  const root = path.join(base, "dev");
+  await mkdirp(path.join(root, "app", ".git"));
+  await mkdirp(path.join(base, ".config-repo", ".git"));
+
+  const discovered = await discoverProjects(root, 3);
+  const projects = await withExtraProjects(discovered, [
+    path.join(base, ".config-repo"),
+    path.join(base, "missing"),
+    path.join(root, "app")
+  ]);
+
+  assert.deepEqual(
+    projects.map((project) => ({ path: path.relative(base, project.path), isRepo: project.isRepo })),
+    [
+      { path: ".config-repo", isRepo: true },
+      { path: path.join("dev", "app"), isRepo: true }
+    ]
+  );
 });

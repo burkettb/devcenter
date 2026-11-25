@@ -3,7 +3,7 @@ import path from "node:path";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { loadRuntimeConfig, loadStandards } from "./config";
-import { discoverProjects } from "./discovery";
+import { discoverProjects, withExtraProjects } from "./discovery";
 import { collectProject, createProjectTask, deleteProjectTask, readProjectDocument, updateProjectTask } from "./devcenter";
 import { collectBranchCommits } from "./git";
 import type { BranchCommitsResponse, DocumentResponse, ProjectsResponse, TaskCreateResponse, TaskUpdateResponse } from "../src/types";
@@ -14,6 +14,10 @@ function isPathInside(parent: string, child: string): boolean {
   const resolvedParent = path.resolve(parent);
   const resolvedChild = path.resolve(child);
   return resolvedChild === resolvedParent || resolvedChild.startsWith(`${resolvedParent}${path.sep}`);
+}
+
+function isServedProject(config: { scanRoot: string; extraProjects: string[] }, projectPath: string): boolean {
+  return [config.scanRoot, ...config.extraProjects].some((root) => isPathInside(root, projectPath));
 }
 
 async function mapWithConcurrency<T, R>(
@@ -78,7 +82,10 @@ async function createApp() {
         return;
       }
 
-      const discoveredProjects = await discoverProjects(config.scanRoot, config.maxDepth, config.excludeSubdirectories);
+      const discoveredProjects = await withExtraProjects(
+        await discoverProjects(config.scanRoot, config.maxDepth, config.excludeSubdirectories),
+        config.extraProjects
+      );
       const projects = await mapWithConcurrency(discoveredProjects, 4, (project) =>
         collectProject(project.path, config.scanRoot, standards, project.isRepo)
       );
@@ -107,7 +114,7 @@ async function createApp() {
         return;
       }
 
-      if (!isPathInside(config.scanRoot, projectPath)) {
+      if (!isServedProject(config, projectPath)) {
         response.status(403).json({ error: "Project path is outside the configured scan root." });
         return;
       }
@@ -132,7 +139,7 @@ async function createApp() {
         return;
       }
 
-      if (!isPathInside(config.scanRoot, projectPath)) {
+      if (!isServedProject(config, projectPath)) {
         response.status(403).json({ error: "Project path is outside the configured scan root." });
         return;
       }
@@ -166,7 +173,7 @@ async function createApp() {
         response.status(400).json({ error: "path is required." });
         return;
       }
-      if (!isPathInside(config.scanRoot, projectPath)) {
+      if (!isServedProject(config, projectPath)) {
         response.status(403).json({ error: "Project path is outside the configured scan root." });
         return;
       }
@@ -197,7 +204,7 @@ async function createApp() {
         response.status(400).json({ error: "path and taskId query parameters are required." });
         return;
       }
-      if (!isPathInside(config.scanRoot, projectPath)) {
+      if (!isServedProject(config, projectPath)) {
         response.status(403).json({ error: "Project path is outside the configured scan root." });
         return;
       }
@@ -224,7 +231,7 @@ async function createApp() {
         return;
       }
 
-      if (!isPathInside(config.scanRoot, projectPath)) {
+      if (!isServedProject(config, projectPath)) {
         response.status(403).json({ error: "Project path is outside the configured scan root." });
         return;
       }

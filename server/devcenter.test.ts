@@ -4,7 +4,17 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { defaultStandards } from "./config";
-import { collectProject, normalizeBranchIntents } from "./devcenter";
+import { collectProject, displayPath, normalizeBranchIntents } from "./devcenter";
+
+test("displayPath stays relative inside the scan root and uses ~ outside it", () => {
+  const home = os.homedir();
+  const scanRoot = path.join(home, "dev");
+
+  assert.equal(displayPath(scanRoot, scanRoot), ".");
+  assert.equal(displayPath(scanRoot, path.join(scanRoot, "group", "app")), path.join("group", "app"));
+  assert.equal(displayPath(scanRoot, path.join(home, ".config-repo")), "~/.config-repo");
+  assert.equal(displayPath(scanRoot, "/opt/elsewhere"), "/opt/elsewhere");
+});
 
 test("collectProject reports an unparseable tasks.yaml instead of throwing", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-collect-"));

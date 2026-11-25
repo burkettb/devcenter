@@ -2,5 +2,6 @@
   "scanRoot": "~/dev",
   "maxDepth": 3,
   "port": 4173,
-  "excludeSubdirectories": []
+  "excludeSubdirectories": [],
+  "extraProjects": []
 }

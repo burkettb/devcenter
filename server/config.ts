@@ -11,6 +11,7 @@ interface ConfigFile {
   maxDepth?: number;
   port?: number;
   excludeSubdirectories?: string[];
+  extraProjects?: string[];
 }
 
 export interface RuntimeConfig {
@@ -18,6 +19,7 @@ export interface RuntimeConfig {
   maxDepth: number;
   port: number;
   excludeSubdirectories: string[];
+  extraProjects: string[];
 }
 
 export const defaultStandards: DevCenterStandards = {
@@ -109,12 +111,17 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     process.env.DEV_CENTER_EXCLUDE?.split(",").map((item) => item.trim()).filter(Boolean) ??
     localConfig?.excludeSubdirectories ??
     [];
+  // Repos outside the scan root (e.g. a dot-directory in $HOME) that the board should still show.
+  const extraProjects =
+    process.env.DEV_CENTER_EXTRA_PROJECTS?.split(",").map((item) => item.trim()).filter(Boolean) ??
+    stringArray(localConfig?.extraProjects, []);
 
   return {
     scanRoot: path.resolve(expandTilde(scanRoot)),
     maxDepth: Number.isFinite(maxDepth) ? maxDepth : 3,
     port: Number.isFinite(port) ? port : 4173,
-    excludeSubdirectories
+    excludeSubdirectories,
+    extraProjects: extraProjects.map((project) => path.resolve(expandTilde(project)))
   };
 }
 
