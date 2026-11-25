@@ -230,19 +230,13 @@ function defaultAgents(projectName: string): string {
 
 This file and \`.devcenter/\` are private DevCenter project memory. They live in the DevCenter home repo and appear here through local symlinks that the project repo never tracks. Treat them as the communication channel between you and the project owner.
 
-## Standards and context (auto-loaded)
+## Standards and context
 
-Claude Code inlines these files at session start, so every new thread begins with the shared standards and current project state — nothing needs re-sharing. Agents that do not support imports must read these paths before working:
-
-@.devcenter/global-standards.yaml
-@.devcenter/standards.yaml
-@.devcenter/context.md
-
-\`global-standards.yaml\` is a generated snapshot of the merged global standards (devcenter defaults + environment overlay); edit the sources in the DevCenter repos, never this file.
+\`devcenter ensure\` prints \`.devcenter/standards.yaml\` and \`.devcenter/context.md\` at session start when it runs from a SessionStart hook. Read \`.devcenter/global-standards.yaml\` before branching, committing, pushing, opening a PR/MR, or setting up a repo or CI. It is a generated snapshot of the merged global standards (devcenter defaults + environment overlay); edit the sources in the DevCenter repos, never this file.
 
 ## Before you start
 
-1. Confirm the standards and context above are loaded (read them manually if your tool ignores imports).
+1. If the session did not start with the project standards and context, read \`.devcenter/standards.yaml\` and \`.devcenter/context.md\`.
 2. Read \`.devcenter/project.yaml\` and \`.devcenter/tasks.yaml\`.
 3. If a task in \`tasks.yaml\` covers your work, take it: set its status to \`in_progress\`.
 4. Working in parallel with other threads? Use a git worktree, then run \`devcenter attach\` inside it — the links restore automatically and point at this same shared memory.
@@ -979,10 +973,45 @@ export async function ensureSidecar(projectPathInput = ".", devcenterRootInput?:
   const taskSummary = openTasks === undefined ? "" : ` — ${openTasks} open task${openTasks === 1 ? "" : "s"}`;
   const messages = [
     ...(didWork ? [`DevCenter: restored sidecar links for "${context.projectName}".`] : []),
-    `DevCenter: "${context.projectName}" attached${taskSummary}. Standards and context auto-load via AGENTS.md and .devcenter/.`
+    `DevCenter: "${context.projectName}" attached${taskSummary}.`,
+    ...(await sessionBriefing(context.devcenterTarget))
   ];
 
   return { ...attach, messages };
+}
+
+// Session-start hooks cap injected output (Claude Code: 10,000 characters), so
+// each printed file gets a budget and the rest stays one read away.
+export const briefingLimits = { "standards.yaml": 2000, "context.md": 6000 } as const;
+
+function capText(text: string, limit: number, relativePath: string): string {
+  const trimmed = text.trimEnd();
+  if (trimmed.length <= limit) {
+    return trimmed;
+  }
+  const cut = trimmed.lastIndexOf("\n", limit);
+  const kept = trimmed.slice(0, cut > 0 ? cut : limit).trimEnd();
+  return `${kept}\n[truncated at ${kept.length} of ${trimmed.length} characters; read ${relativePath} for the rest]`;
+}
+
+async function sessionBriefing(devcenterTarget: string): Promise<string[]> {
+  const sections: string[] = [];
+  const files: Array<[keyof typeof briefingLimits, string]> = [
+    ["standards.yaml", "Project standards"],
+    ["context.md", "Project context"]
+  ];
+  for (const [fileName, label] of files) {
+    const raw = await readTextIfExists(path.join(devcenterTarget, fileName));
+    if (!raw?.trim()) {
+      continue;
+    }
+    const relativePath = `.devcenter/${fileName}`;
+    sections.push(`\n${label} (${relativePath}):\n${capText(raw, briefingLimits[fileName], relativePath)}`);
+  }
+  sections.push(
+    "\nRead .devcenter/global-standards.yaml before branching, committing, pushing, opening a PR/MR, or setting up a repo or CI. Tasks live in .devcenter/tasks.yaml."
+  );
+  return sections;
 }
 
 export async function pushDevCenter(devcenterRootInput?: string): Promise<SidecarResult> {

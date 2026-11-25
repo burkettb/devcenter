@@ -7,7 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { resolveDevCenterHome } from "./home";
 import { deepMerge, materializeGlobalStandards, refreshAllMaterializedStandards } from "./standards";
-import { attachSidecar, ensureSidecar } from "./sidecar";
+import { attachSidecar, briefingLimits, ensureSidecar } from "./sidecar";
 
 const execFileAsync = promisify(execFile);
 
@@ -198,8 +198,52 @@ test("ensure restores links for a known project and reports open tasks", async (
   assert.equal((await fs.lstat(path.join(project, ".devcenter"))).isSymbolicLink(), true);
 
   const settled = await ensureSidecar(project, home);
-  assert.equal(settled.messages.length, 1);
+  assert.equal(settled.messages.some((message) => /restored sidecar links/.test(message)), false);
   assert.match(settled.messages[0], /"Known" attached/);
+});
+
+test("ensure prints project standards and context with a pointer to global standards", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-briefing-"));
+  const home = await makeHome(root);
+  const project = await makeGitRepo(root, "Briefed");
+  await attachSidecar(project, home);
+  const memory = path.join(home, "projects", "Briefed", ".devcenter");
+  await fs.writeFile(path.join(memory, "standards.yaml"), "commits:\n  format: conventional\n", "utf8");
+  await fs.writeFile(path.join(memory, "context.md"), "# Briefed Context\n\nShipping the widget API.\n", "utf8");
+
+  const output = (await ensureSidecar(project, home)).messages.join("\n");
+  assert.doesNotMatch(output, /auto-load/);
+  assert.match(output, /Project standards \(\.devcenter\/standards\.yaml\):\ncommits:\n  format: conventional/);
+  assert.match(output, /Project context \(\.devcenter\/context\.md\):\n# Briefed Context\n\nShipping the widget API\./);
+  assert.match(output, /Read \.devcenter\/global-standards\.yaml before branching/);
+  // The merged global snapshot stays a pointer, not printed content.
+  assert.doesNotMatch(output, /Built-in conventions shipped with the devcenter app/);
+
+  // An empty context file drops its section instead of printing a bare header.
+  // (A deleted one gets recreated from the template by the attach step.)
+  await fs.writeFile(path.join(memory, "context.md"), "\n", "utf8");
+  const withoutContext = (await ensureSidecar(project, home)).messages.join("\n");
+  assert.doesNotMatch(withoutContext, /Project context/);
+  assert.match(withoutContext, /Project standards/);
+});
+
+test("ensure truncates an oversized context at a line boundary", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-briefing-cap-"));
+  const home = await makeHome(root);
+  const project = await makeGitRepo(root, "Verbose");
+  await attachSidecar(project, home);
+  const line = `${"x".repeat(99)}\n`;
+  const context = `# Verbose Context\n${line.repeat(200)}LAST LINE\n`;
+  await fs.writeFile(path.join(home, "projects", "Verbose", ".devcenter", "context.md"), context, "utf8");
+
+  const output = (await ensureSidecar(project, home)).messages.join("\n");
+  const section = output.slice(output.indexOf("Project context"));
+  assert.match(section, /\[truncated at \d+ of \d+ characters; read \.devcenter\/context\.md for the rest\]/);
+  assert.doesNotMatch(section, /LAST LINE/);
+  const rows = section.split("\n");
+  const printed = rows.slice(1, rows.findIndex((row) => row.startsWith("[truncated")));
+  assert.equal(printed.every((row) => row === "# Verbose Context" || row === "x".repeat(99)), true);
+  assert.ok(printed.join("\n").length <= briefingLimits["context.md"]);
 });
 
 test("doctor repoints broken symlinks after the home repo moves", async () => {

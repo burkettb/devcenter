@@ -42,7 +42,7 @@ Git facts come from git. Metadata explains intent git cannot know, such as which
 
 Nothing needs re-sharing when a new agent session (thread) starts on a managed project:
 
-- **Same checkout**: Claude Code auto-loads the root `CLAUDE.md` (symlinked to the sidecar `AGENTS.md`), which `@`-imports `global-standards.yaml`, the project `standards.yaml`, and `context.md`. Commit format, workflow rules, documentation habits, and current project state are in context before the first prompt. Agents without import support follow the same file paths listed in `AGENTS.md`.
+- **Same checkout**: a SessionStart hook runs `devcenter ensure`, which prints the project `standards.yaml` and `context.md` (capped so they fit the hook's output limit), so project rules and current state are in context before the first prompt. The larger `global-standards.yaml` is read on demand: `AGENTS.md` tells agents to read it before branching, committing, pushing, opening a PR/MR, or setting up a repo or CI. Agents without a hook follow the same file paths listed in `AGENTS.md`.
 - **Parallel threads**: create a git worktree and run `devcenter attach` inside it. Attach detects linked worktrees and points the new checkout's symlinks at the *same* sidecar project (never a new one named after the worktree directory), so all threads read and write one shared memory. `.git/info/exclude` is shared between worktrees, so ignore state carries over automatically.
 - **Coordination**: threads claim tasks in `tasks.yaml` (`in_progress`, optional `branch` field) so parallel work doesn't collide, and hand off through `agent-log.md` and `devcenter sync`.
 
