@@ -1,4 +1,4 @@
-export type TaskStatus = "backlog" | "next" | "in_progress" | "blocked" | "done";
+export type TaskStatus = "inbox" | "backlog" | "next" | "in_progress" | "blocked" | "done";
 
 export type IssueSeverity = "info" | "warning" | "error";
 
@@ -23,6 +23,7 @@ export interface ProjectTask {
 }
 
 export interface TaskCounts {
+  inbox: number;
   backlog: number;
   next: number;
   in_progress: number;
@@ -201,6 +202,12 @@ export interface TaskChanges {
   priority?: string;
   branch?: string;
   notes?: string;
+}
+
+export interface TaskCreateResponse {
+  projectPath: string;
+  taskId: string;
+  tasks: ProjectTask[];
 }
 
 export interface TaskUpdateResponse {

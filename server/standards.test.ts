@@ -123,7 +123,7 @@ test("materialized standards merge defaults with the home overlay, overlay winni
   assert.match(snapshot, /preferred_license: MIT/);
   assert.match(snapshot, /feature: feat\/\{slug\}/);
   // Untouched defaults keys survive the merge.
-  assert.match(snapshot, /bugfix: bugfix\/\{slug\}/);
+  assert.match(snapshot, /fix: fix\/\{slug\}/);
 
   // Re-materializing without source changes is a no-op, so git stays quiet.
   const again = await materializeGlobalStandards(home, sidecarDir);

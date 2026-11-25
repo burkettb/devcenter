@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
+import { nextTaskId } from "./taskIds";
 import type {
   BranchIntent,
   ComplianceIssue,
@@ -15,7 +16,7 @@ import type {
 } from "../src/types";
 import { collectGitState } from "./git";
 
-const taskStatuses: TaskStatus[] = ["backlog", "next", "in_progress", "blocked", "done"];
+const taskStatuses: TaskStatus[] = ["inbox", "backlog", "next", "in_progress", "blocked", "done"];
 
 const knownDocuments = [
   { key: "readme", label: "README", candidates: ["README.md", "README"] },
@@ -245,11 +246,7 @@ export interface ProjectTaskChanges {
  * raw parsed YAML so fields this app does not model (created, source, …) are
  * preserved. Returns the normalized task list after the write.
  */
-export async function updateProjectTask(
-  repoPath: string,
-  taskId: string,
-  changes: ProjectTaskChanges
-): Promise<ProjectTask[]> {
+async function readRawTaskList(repoPath: string): Promise<{ tasksPath: string; parsed: unknown[] }> {
   const tasksPath = path.join(repoPath, ".devcenter", "tasks.yaml");
 
   let raw: string;
@@ -259,10 +256,72 @@ export async function updateProjectTask(
     throw new Error("This project has no .devcenter/tasks.yaml. Attach it with `devcenter attach` first.");
   }
 
-  const parsed: unknown = YAML.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(raw);
+  } catch (error) {
+    throw new Error(`.devcenter/tasks.yaml is not valid YAML: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
+  }
+  if (parsed === null || parsed === undefined) {
+    return { tasksPath, parsed: [] };
+  }
   if (!Array.isArray(parsed)) {
     throw new Error(".devcenter/tasks.yaml is not a task list.");
   }
+
+  return { tasksPath, parsed };
+}
+
+async function writeRawTaskList(tasksPath: string, parsed: unknown[]): Promise<ProjectTask[]> {
+  await fs.writeFile(tasksPath, YAML.stringify(parsed, { lineWidth: 100, minContentWidth: 0 }), "utf8");
+  return parsed.map(normalizeTask).filter((task): task is ProjectTask => Boolean(task));
+}
+
+export interface NewProjectTask {
+  title: string;
+  status?: string;
+  priority?: string;
+  notes?: string;
+}
+
+/** Append a task to `<repoPath>/.devcenter/tasks.yaml`. Returns the new id and the task list. */
+export async function createProjectTask(repoPath: string, input: NewProjectTask): Promise<{ id: string; tasks: ProjectTask[] }> {
+  const title = input.title.trim();
+  if (!title) {
+    throw new Error("Task title cannot be empty.");
+  }
+
+  const status = input.status || "inbox";
+  if (!taskStatuses.includes(status as TaskStatus)) {
+    throw new Error(`Unknown status "${status}". Valid statuses: ${taskStatuses.join(", ")}.`);
+  }
+
+  const { tasksPath, parsed } = await readRawTaskList(repoPath);
+  const existingIds = parsed.map((entry) => (isObject(entry) && typeof entry.id === "string" ? entry.id : ""));
+  const id = nextTaskId(path.basename(repoPath), existingIds);
+  const record: Record<string, unknown> = { id, title, status, priority: input.priority || "medium", branch: "", notes: input.notes ?? "" };
+  parsed.push(record);
+  return { id, tasks: await writeRawTaskList(tasksPath, parsed) };
+}
+
+/** Remove one task. The home repo's git history is the undo. */
+export async function deleteProjectTask(repoPath: string, taskId: string): Promise<ProjectTask[]> {
+  const { tasksPath, parsed } = await readRawTaskList(repoPath);
+  const index = parsed.findIndex((entry) => isObject(entry) && typeof entry.id === "string" && entry.id.toLowerCase() === taskId.toLowerCase());
+  if (index === -1) {
+    throw new Error(`No task with id "${taskId}" in this project.`);
+  }
+
+  parsed.splice(index, 1);
+  return writeRawTaskList(tasksPath, parsed);
+}
+
+export async function updateProjectTask(
+  repoPath: string,
+  taskId: string,
+  changes: ProjectTaskChanges
+): Promise<ProjectTask[]> {
+  const { tasksPath, parsed } = await readRawTaskList(repoPath);
 
   const entry = parsed.find((candidate, index) => {
     if (!isObject(candidate)) {
@@ -303,9 +362,7 @@ export async function updateProjectTask(
     entry.notes = changes.notes;
   }
 
-  await fs.writeFile(tasksPath, YAML.stringify(parsed, { lineWidth: 100, minContentWidth: 0 }), "utf8");
-
-  return parsed.map(normalizeTask).filter((task): task is ProjectTask => Boolean(task));
+  return writeRawTaskList(tasksPath, parsed);
 }
 
 function countTasks(tasks: ProjectTask[]): TaskCounts {
@@ -314,7 +371,7 @@ function countTasks(tasks: ProjectTask[]): TaskCounts {
       counts[task.status] += 1;
       return counts;
     },
-    { backlog: 0, next: 0, in_progress: 0, blocked: 0, done: 0 }
+    { inbox: 0, backlog: 0, next: 0, in_progress: 0, blocked: 0, done: 0 }
   );
 }
 

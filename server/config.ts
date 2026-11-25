@@ -23,12 +23,12 @@ export interface RuntimeConfig {
 export const defaultStandards: DevCenterStandards = {
   branch_naming: {
     feature: "feature/{slug}",
-    bugfix: "bugfix/{slug}",
+    fix: "fix/{slug}",
     chore: "chore/{slug}",
     experiment: "experiment/{slug}"
   },
   required_files: ["README.md"],
-  task_statuses: ["backlog", "next", "in_progress", "blocked", "done"],
+  task_statuses: ["inbox", "backlog", "next", "in_progress", "blocked", "done"],
   preferred_license: "none"
 };
 

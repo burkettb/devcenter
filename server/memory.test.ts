@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { attachSidecar } from "./sidecar";
-import { addTask, appendAgentLog, listProjects, listTasks, setTaskStatus, syncMemory } from "./memory";
+import { addTask, appendAgentLog, deleteTask, listProjects, listTasks, setTaskStatus, sweepBacklogToInbox, syncMemory } from "./memory";
 
 const execFileAsync = promisify(execFile);
 
@@ -39,7 +39,7 @@ test("task add, list, and status transitions round-trip through tasks.yaml", asy
   const { devcenter, project } = await makeWorkspace();
 
   const added = await addTask(project, "Ship the feature", { priority: "high" }, devcenter);
-  assert.match(added.messages[0], /added \[backlog\] MA-001 Ship the feature \(high\)/);
+  assert.match(added.messages[0], /added \[inbox\] MA-001 Ship the feature \(high\)/);
 
   await addTask(project, "Second task", {}, devcenter);
   const listed = await listTasks(project, devcenter);
@@ -121,4 +121,47 @@ test("attach links CLAUDE.md and materializes merged global standards in the sid
 
   const exclude = await fs.readFile(path.join(project, ".git", "info", "exclude"), "utf8");
   assert.match(exclude, /^CLAUDE\.md$/m);
+});
+
+test("task status changes keep fields the CLI does not model", async () => {
+  const { devcenter, project } = await makeWorkspace();
+  const tasksPath = path.join(devcenter, "projects", "My App", ".devcenter", "tasks.yaml");
+  await fs.writeFile(tasksPath, "- id: DC-007\n  title: Keep me\n  status: next\n  created: 2026-01-02\n  source: audit\n", "utf8");
+
+  await setTaskStatus(project, "DC-007", "in_progress", devcenter);
+  const raw = await fs.readFile(tasksPath, "utf8");
+  assert.match(raw, /created: 2026-01-02/);
+  assert.match(raw, /source: audit/);
+
+  // New ids continue the prefix already in use, not the project initials.
+  const added = await addTask(project, "Follow-up", {}, devcenter);
+  assert.match(added.messages[0], /DC-008/);
+});
+
+test("task rm deletes one task", async () => {
+  const { devcenter, project } = await makeWorkspace();
+  await addTask(project, "Keep", {}, devcenter);
+  await addTask(project, "Drop", {}, devcenter);
+
+  const removed = await deleteTask(project, "ma-002", devcenter);
+  assert.match(removed.messages[0], /deleted MA-002 Drop/);
+  const listed = await listTasks(project, devcenter);
+  assert.deepEqual(listed.messages, ["[inbox] MA-001 Keep"]);
+  await assert.rejects(deleteTask(project, "MA-002", devcenter), /No task with id/);
+});
+
+test("sweep moves backlog to the inbox, with dry-run and --all", async () => {
+  const { devcenter, project } = await makeWorkspace();
+  await addTask(project, "Old idea", { status: "backlog" }, devcenter);
+  await addTask(project, "Active", { status: "next" }, devcenter);
+
+  const dry = await sweepBacklogToInbox(project, { dryRun: true }, devcenter);
+  assert.match(dry.messages.join("\n"), /Would move 1 task to the inbox/);
+  assert.match((await listTasks(project, devcenter)).messages.join("\n"), /\[backlog\] MA-001/);
+
+  const swept = await sweepBacklogToInbox(project, { all: true }, devcenter);
+  assert.match(swept.messages.join("\n"), /My App: 1 backlog → inbox/);
+  const after = (await listTasks(project, devcenter)).messages.join("\n");
+  assert.match(after, /\[inbox\] MA-001 Old idea/);
+  assert.match(after, /\[next\] MA-002 Active/);
 });

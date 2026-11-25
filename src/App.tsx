@@ -20,13 +20,13 @@ import { TasksView } from "./views/TasksView";
 type ViewKey = "dashboard" | "tasks" | "repo" | "standards";
 
 const navItems: Array<{ key: ViewKey; label: string }> = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "tasks", label: "Tasks" }
+  { key: "tasks", label: "Board" },
+  { key: "dashboard", label: "Projects" }
 ];
 
 export function App() {
   const [data, setData] = useState<ProjectsResponse>();
-  const [view, setView] = useState<ViewKey>("dashboard");
+  const [view, setView] = useState<ViewKey>("tasks");
   const [selectedId, setSelectedId] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

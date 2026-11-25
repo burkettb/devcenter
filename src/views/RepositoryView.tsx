@@ -597,7 +597,11 @@ export function RepositoryView({
 
       {tab === "tasks" ? (
         boardTasks.length > 0 ? (
-          <TaskBoard tasks={boardTasks} onTaskSaved={onTaskSaved} />
+          <TaskBoard
+            tasks={boardTasks}
+            projects={project.metadataExists ? [{ id: project.id, name: project.name, path: project.path }] : []}
+            onTaskSaved={onTaskSaved}
+          />
         ) : (
           <EmptyState
             size="sm"
