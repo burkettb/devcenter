@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "cli": "tsx server/cli.ts",
     "preview": "tsx server/index.ts",
-    "test": "node --import tsx --test server/*.test.ts"
+    "test": "node --import tsx --import ./server/testSetup.ts --test server/*.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
