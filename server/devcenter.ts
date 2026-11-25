@@ -113,16 +113,24 @@ export function normalizeBranchIntents(value: unknown): BranchIntent[] {
   return Object.entries(value.branches).map(([name, entry]) => normalizeBranchIntent(name, entry));
 }
 
-async function readYaml(filePath: string): Promise<{ exists: boolean; value?: unknown }> {
+async function readYaml(filePath: string): Promise<{ exists: boolean; value?: unknown; parseError?: string }> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(filePath, "utf8");
-    return { exists: true, value: YAML.parse(raw) };
+    raw = await fs.readFile(filePath, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { exists: false };
     }
 
     throw error;
+  }
+
+  // One hand-edited file with bad YAML must not take down the whole scan.
+  try {
+    return { exists: true, value: YAML.parse(raw) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    return { exists: true, parseError: message };
   }
 }
 
@@ -196,27 +204,30 @@ async function architectureDocuments(repoPath: string): Promise<ProjectDocument[
   );
 }
 
-async function readMetadata(repoPath: string): Promise<{ exists: boolean; metadata: ProjectMetadata }> {
+async function readMetadata(repoPath: string): Promise<{ exists: boolean; metadata: ProjectMetadata; parseError?: string }> {
   const result = await readYaml(path.join(repoPath, ".devcenter", "project.yaml"));
   return {
     exists: result.exists,
+    parseError: result.parseError,
     metadata: normalizeMetadata(result.value)
   };
 }
 
-async function readBranchIntents(repoPath: string): Promise<{ exists: boolean; intents: BranchIntent[] }> {
+async function readBranchIntents(repoPath: string): Promise<{ exists: boolean; intents: BranchIntent[]; parseError?: string }> {
   const result = await readYaml(path.join(repoPath, ".devcenter", "branches.yaml"));
   return {
     exists: result.exists,
+    parseError: result.parseError,
     intents: normalizeBranchIntents(result.value)
   };
 }
 
-async function readTasks(repoPath: string): Promise<{ exists: boolean; tasks: ProjectTask[] }> {
+async function readTasks(repoPath: string): Promise<{ exists: boolean; tasks: ProjectTask[]; parseError?: string }> {
   const result = await readYaml(path.join(repoPath, ".devcenter", "tasks.yaml"));
   const values = Array.isArray(result.value) ? result.value : [];
   return {
     exists: result.exists,
+    parseError: result.parseError,
     tasks: values.map(normalizeTask).filter((task): task is ProjectTask => Boolean(task))
   };
 }
@@ -557,6 +568,16 @@ export async function collectProject(
     currentBranch: git.currentBranch,
     standards
   });
+
+  for (const [file, parseError] of [
+    [".devcenter/project.yaml", metadataResult.parseError],
+    [".devcenter/tasks.yaml", taskResult.parseError],
+    [".devcenter/branches.yaml", branchIntentResult.parseError]
+  ] as const) {
+    if (parseError) {
+      compliance.unshift({ severity: "error", code: "unreadable-yaml", message: `${file} is not valid YAML: ${parseError}`, file });
+    }
+  }
 
   const summary: ProjectSummary = {
     id: projectId(repoPath),

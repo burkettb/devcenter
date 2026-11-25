@@ -1,6 +1,29 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { normalizeBranchIntents } from "./devcenter";
+import { defaultStandards } from "./config";
+import { collectProject, normalizeBranchIntents } from "./devcenter";
+
+test("collectProject reports an unparseable tasks.yaml instead of throwing", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-collect-"));
+  const project = path.join(root, "app");
+  await fs.mkdir(path.join(project, ".devcenter"), { recursive: true });
+  // A plain scalar that hits " #" and then dedents: the shape agents produce.
+  await fs.writeFile(
+    path.join(project, ".devcenter", "tasks.yaml"),
+    "- id: A-001\n  title: First\n  notes: sits on a #1d1d1f tile\n to the banner\n",
+    "utf8"
+  );
+
+  const summary = await collectProject(project, root, defaultStandards, false);
+  assert.deepEqual(summary.tasks, []);
+  const issue = summary.compliance.find((candidate) => candidate.code === "unreadable-yaml");
+  assert.ok(issue, "expected an unreadable-yaml issue");
+  assert.equal(issue.file, ".devcenter/tasks.yaml");
+  assert.equal(issue.severity, "error");
+});
 
 test("normalizeBranchIntents reads the branches map form", () => {
   const intents = normalizeBranchIntents({

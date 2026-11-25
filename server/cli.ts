@@ -21,6 +21,15 @@ import {
   syncMemory,
   taskStatuses
 } from "./memory";
+import {
+  boardStatusLine,
+  installService,
+  openBoard,
+  restartService,
+  serviceStatus,
+  uninstallService,
+  type ServiceResult
+} from "./service";
 
 function usage(): string {
   return `Usage: devcenter <command> [arguments] [options]
@@ -41,6 +50,13 @@ Communication:
   task set <id> <status>          Set any status (${taskStatuses.join(", ")}).
   log <message>                   Append a dated note to this project's agent log.
 
+Board:
+  open                            Open the board in a browser.
+  service install                 Build the app and run the board at login (launchd).
+  service restart                 Rebuild and restart the board (after pulling updates).
+  service status                  Show whether the board service is installed and up.
+  service uninstall               Stop the board and remove the launchd agent.
+
 DevCenter repo:
   list                            Summarize all attached projects and task counts.
   sync [-m msg]                   Commit memory changes, pull --rebase, and push.
@@ -56,7 +72,7 @@ Options:
 `;
 }
 
-function printResult(result: SidecarResult): void {
+function printResult(result: { messages: string[]; warnings: string[] }): void {
   for (const message of result.messages) {
     if (message) {
       console.log(message);
@@ -88,6 +104,23 @@ function takeOption(args: string[], names: string[]): string | undefined {
   }
 
   return undefined;
+}
+
+async function runServiceCommand(args: string[]): Promise<ServiceResult> {
+  const [subcommand] = args;
+  switch (subcommand) {
+    case "install":
+      return installService();
+    case "restart":
+      return restartService();
+    case "uninstall":
+      return uninstallService();
+    case "status":
+    case undefined:
+      return serviceStatus();
+    default:
+      throw new Error(`Unknown service subcommand: ${subcommand}`);
+  }
 }
 
 async function runTaskCommand(args: string[]): Promise<SidecarResult> {
@@ -147,6 +180,7 @@ async function main(argv: string[]): Promise<number> {
     }
     case "status": {
       const result = await statusSidecar(takePath(args));
+      result.messages.push(await boardStatusLine());
       printResult(result);
       return result.exitCode;
     }
@@ -196,6 +230,20 @@ async function main(argv: string[]): Promise<number> {
     }
     case "ensure": {
       const result = await ensureSidecar(takePath(args));
+      // Only attached projects get the board line; ensure stays quiet elsewhere.
+      if (result.messages.some((message) => message.includes("attached"))) {
+        result.messages.push(await boardStatusLine());
+      }
+      printResult(result);
+      return result.exitCode;
+    }
+    case "service": {
+      const result = await runServiceCommand(args);
+      printResult(result);
+      return result.exitCode;
+    }
+    case "open": {
+      const result = await openBoard();
       printResult(result);
       return result.exitCode;
     }
