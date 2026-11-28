@@ -147,7 +147,8 @@ export async function collapseSharedSidecars(projects: DiscoveredProject[]): Pro
         project,
         sidecar,
         mainCheckout: await isMainCheckout(project.path),
-        namedLikeSidecar: sidecar !== undefined && path.basename(project.path) === path.basename(sidecar)
+        // The link targets <home>/projects/<name>/.devcenter, so the project name is the parent directory.
+        namedLikeSidecar: sidecar !== undefined && path.basename(project.path) === path.basename(path.dirname(sidecar))
       };
     })
   );

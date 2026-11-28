@@ -66,8 +66,8 @@ test("collapseSharedSidecars keeps one folder per linked sidecar", async () => {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-discovery-"));
   const home = path.join(base, "home", "projects");
   const root = path.join(base, "dev");
-  await mkdirp(path.join(home, "app"));
-  await mkdirp(path.join(home, "tool"));
+  await mkdirp(path.join(home, "app", ".devcenter"));
+  await mkdirp(path.join(home, "tool", ".devcenter"));
 
   // app: main checkout plus a linked worktree (.git file).
   await mkdirp(path.join(root, "app", ".git"));
@@ -80,7 +80,7 @@ test("collapseSharedSidecars keeps one folder per linked sidecar", async () => {
   await mkdirp(path.join(root, "plain", ".git"));
 
   for (const [folder, sidecar] of [["app", "app"], ["app-feature", "app"], ["a-tool-copy", "tool"], ["tool", "tool"]]) {
-    await fs.symlink(path.join(home, sidecar), path.join(root, folder, ".devcenter"));
+    await fs.symlink(path.join(home, sidecar, ".devcenter"), path.join(root, folder, ".devcenter"));
   }
 
   const projects = await collapseSharedSidecars(await discoverProjects(root, 3));
