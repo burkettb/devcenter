@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverProjects, withExtraProjects } from "./discovery";
+import { collapseSharedSidecars, discoverProjects, withExtraProjects } from "./discovery";
 
 async function mkdirp(directory: string): Promise<void> {
   await fs.mkdir(directory, { recursive: true });
@@ -59,5 +59,34 @@ test("withExtraProjects adds dot-directories outside the scan root and drops mis
       { path: ".config-repo", isRepo: true },
       { path: path.join("dev", "app"), isRepo: true }
     ]
+  );
+});
+
+test("collapseSharedSidecars keeps one folder per linked sidecar", async () => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "devcenter-discovery-"));
+  const home = path.join(base, "home", "projects");
+  const root = path.join(base, "dev");
+  await mkdirp(path.join(home, "app", ".devcenter"));
+  await mkdirp(path.join(home, "tool", ".devcenter"));
+
+  // app: main checkout plus a linked worktree (.git file).
+  await mkdirp(path.join(root, "app", ".git"));
+  await mkdirp(path.join(root, "app-feature"));
+  await fs.writeFile(path.join(root, "app-feature", ".git"), "gitdir: ../app/.git/worktrees/app-feature\n");
+  // tool: two separate clones; the one named like the sidecar wins.
+  await mkdirp(path.join(root, "a-tool-copy", ".git"));
+  await mkdirp(path.join(root, "tool", ".git"));
+  // plain: no sidecar, always kept.
+  await mkdirp(path.join(root, "plain", ".git"));
+
+  for (const [folder, sidecar] of [["app", "app"], ["app-feature", "app"], ["a-tool-copy", "tool"], ["tool", "tool"]]) {
+    await fs.symlink(path.join(home, sidecar, ".devcenter"), path.join(root, folder, ".devcenter"));
+  }
+
+  const projects = await collapseSharedSidecars(await discoverProjects(root, 3));
+
+  assert.deepEqual(
+    projects.map((project) => path.relative(root, project.path)),
+    ["app", "plain", "tool"]
   );
 });

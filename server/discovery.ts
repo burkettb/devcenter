@@ -30,6 +30,12 @@ async function hasGitMarker(directory: string): Promise<boolean> {
   return exists(path.join(directory, ".git"));
 }
 
+// A main checkout has a .git directory; a linked worktree has a .git file.
+async function isMainCheckout(directory: string): Promise<boolean> {
+  const stats = await fs.stat(path.join(directory, ".git")).catch(() => undefined);
+  return stats?.isDirectory() ?? false;
+}
+
 export interface DiscoveredProject {
   path: string;
   isRepo: boolean;
@@ -127,4 +133,52 @@ export async function withExtraProjects(discovered: DiscoveredProject[], extraPa
   }
 
   return [...projects.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+// Several folders can link to one sidecar: linked git worktrees of a repo, or a
+// second clone attached to the same home-repo project. Each would load the same
+// tasks.yaml, so keep one folder per sidecar: a main checkout over a linked
+// worktree, then the folder named like the sidecar, then path order.
+export async function collapseSharedSidecars(projects: DiscoveredProject[]): Promise<DiscoveredProject[]> {
+  const ranked = await Promise.all(
+    projects.map(async (project) => {
+      const sidecar = await fs.realpath(path.join(project.path, ".devcenter")).catch(() => undefined);
+      return {
+        project,
+        sidecar,
+        mainCheckout: await isMainCheckout(project.path),
+        // The link targets <home>/projects/<name>/.devcenter, so the project name is the parent directory.
+        namedLikeSidecar: sidecar !== undefined && path.basename(project.path) === path.basename(path.dirname(sidecar))
+      };
+    })
+  );
+
+  const kept = new Map<string, (typeof ranked)[number]>();
+  const result: DiscoveredProject[] = [];
+  for (const entry of ranked) {
+    if (!entry.sidecar) {
+      result.push(entry.project);
+      continue;
+    }
+
+    const current = kept.get(entry.sidecar);
+    if (!current || rankAbove(entry, current)) {
+      kept.set(entry.sidecar, entry);
+    }
+  }
+
+  return [...result, ...[...kept.values()].map((entry) => entry.project)].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function rankAbove(
+  candidate: { project: DiscoveredProject; mainCheckout: boolean; namedLikeSidecar: boolean },
+  current: { project: DiscoveredProject; mainCheckout: boolean; namedLikeSidecar: boolean }
+): boolean {
+  if (candidate.mainCheckout !== current.mainCheckout) {
+    return candidate.mainCheckout;
+  }
+  if (candidate.namedLikeSidecar !== current.namedLikeSidecar) {
+    return candidate.namedLikeSidecar;
+  }
+  return candidate.project.path.localeCompare(current.project.path) < 0;
 }
