@@ -86,7 +86,11 @@ pull_requests:
   shared_repos:
     - Always open a PR; never push directly to main.
   content:
-    - Description states what changed, why, and how it was verified.
+    - Description opens with a plain-language Why (the problem, and why a reviewer should
+      care) and What (what the PR does), one or two sentences each, before any detail.
+    - After that, only sections that have content, such as the notable changes,
+      before/after screenshots for visual work, how it was verified, and anything the
+      reviewer must decide or do after merge. Readable in under a minute.
     - Delete the branch after merge.
 
 gitignore:
