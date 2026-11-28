@@ -3,7 +3,7 @@ import path from "node:path";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { loadRuntimeConfig, loadStandards } from "./config";
-import { discoverProjects, withExtraProjects } from "./discovery";
+import { collapseSharedSidecars, discoverProjects, withExtraProjects } from "./discovery";
 import { collectProject, createProjectTask, deleteProjectTask, readProjectDocument, updateProjectTask } from "./devcenter";
 import { collectBranchCommits } from "./git";
 import type { BranchCommitsResponse, DocumentResponse, ProjectsResponse, TaskCreateResponse, TaskUpdateResponse } from "../src/types";
@@ -82,9 +82,11 @@ async function createApp() {
         return;
       }
 
-      const discoveredProjects = await withExtraProjects(
-        await discoverProjects(config.scanRoot, config.maxDepth, config.excludeSubdirectories),
-        config.extraProjects
+      const discoveredProjects = await collapseSharedSidecars(
+        await withExtraProjects(
+          await discoverProjects(config.scanRoot, config.maxDepth, config.excludeSubdirectories),
+          config.extraProjects
+        )
       );
       const projects = await mapWithConcurrency(discoveredProjects, 4, (project) =>
         collectProject(project.path, config.scanRoot, standards, project.isRepo)
